@@ -1,16 +1,43 @@
-# [KCGW - Child Account] KGO
-	| Panel Name | Panel Description | Panel Type | Formulas |
-	| :---------- | :----------------- | :---------- | :-------- |
-	| KGO Uptime | This panel shows if there was an active leader  pod for KGO available in the cluster  | stat | group(leader_election_master_status{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}) |
-	| Open FDs | This panel tells you how many file descriptors are currently open by the process | timeseries | process_open_fds{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"} |
-	| Reconciler Error Rate | This panel shows the Error rate encountered by KGO by each controller type | timeseries | sum by (controller)(rate(controller_runtime_reconcile_errors_total{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}[5m])) |
-	| Active Workers | This panels shows how many active worker process were present at any given point of time | timeseries | sum by (controller)(controller_runtime_active_workers{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}) |
-	| # of Goroutines | This panel tell you how many goroutines were running at a given time | timeseries | go_goroutines{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"} |
-	| GC Duration | This panel tell you how long the Go garbage Collector took to clean up used memory | timeseries | go_gc_duration_seconds{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system", quantile="1"} |
-	| REST Client Requests | This panel tells you how many requests were made by KGO to the API Server grouped by response code and request method | timeseries | sum by (code, method)(rate(rest_client_requests_total{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}[5m])) |
-	| Workqueue Depth | This panel tell you the depth of the Controller's Workqueue | timeseries | sum by (controller)(workqueue_depth{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}) |
-	| Workqueue Work Duration | This panel tell you how many seconds it takes to process an item from the workqueue | heatmap | sum by (le)(increase(workqueue_work_duration_seconds_bucket{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}[5m])) |
-	| Reconcile Duration | This panel tells you how long in seconds it takes for KGO to complete the reconciliation. | heatmap | sum by (le)(increase(controller_runtime_reconcile_time_seconds_bucket{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}[5m])) |
-	| Total Reconciliations | This panel tells you the rate of reconciliation operations performed grouped by their result | timeseries | sum by (result)(round(increase(controller_runtime_reconcile_total{orgId="$orgId", clusterName="$clusterName", namespace="gateway-operator-system"}[5m]))) |
-	| ---------- | ----------------- | ---------- | -------- |
-	
+# [KCGW - Child Account] Dataplane Uptime Dashboard
+
+| Panel Name | Panel Description | Panel Type | Formulas |
+| ---------- | ----------------- | ---------- | -------- |
+| Org Uptime Parameters - 1 means up |  | timeseries | <pre><code>min((avg_over_time(
+     (
+       sum(rate(kong_http_requests_total{orgId=\"\$orgId\", code=~\"5..\", source=\"kong\"}[\$__range])) or vector(0)
+       /
+       sum(rate(kong_http_requests_total{orgId=\"\$orgId\", source=\"kong\"}[1m]))
+     )[1m] < bool 0.05
+   )
+  )
+), (avg_over_time(
+     min(kube_deployment_status_replicas_ready{orgId=\"\$orgId\"})[1m] > bool 0
+   )
+), (avg_over_time(
+     sum(aws_networkelb_un_healthy_host_count_maximum{orgId=\"\$orgId\", dimension_AvailabilityZone!~\".*\"}) == bool 0
+   [1m])
+), avg_over_time(sum(aws_networkelb_rejected_flow_count_maximum{orgId=\"\$orgId\"})[1m] == bool 0)
+</code></pre> |
+| DP Uptime Parameters - 1 means up |  | timeseries | <pre><code>min((avg_over_time(
+     (
+       sum(rate(kong_http_requests_total{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\", code=~\"5..\", source=\"kong\"}[1m])) or vector(0)
+       /
+       sum(rate(kong_http_requests_total{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\", source=\"kong\"}[1m]))
+     )[1m] < bool 0.05
+   )
+  )
+), (avg_over_time(
+     min(kube_deployment_status_replicas_ready{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\"})[1m] > bool 0
+   )
+), (avg_over_time(
+     sum(aws_networkelb_healthy_host_count_maximum{orgId=\"\$orgId\", clusterName=\"\$clusterName\", tag_gateways_kongcloud_io_controlplane_group_id=\"\$namespace\", dimension_AvailabilityZone!~\".*\"}) > bool 0
+   [1m])
+), avg_over_time(sum(aws_networkelb_rejected_flow_count_maximum{orgId=\"\$orgId\", clusterName=\"\$clusterName\", tag_gateways_kongcloud_io_controlplane_group_id=\"\$namespace\"})[1m] == bool 0)
+</code></pre> |
+| R53 DPG Health (All DPGs under Org) - 1 means UP | This panel shows if the Data Plane Group (DPG) is healthy or not. Any failing probe would mean the downtime. The panel shows all the DPGs under the Org Id. | timeseries | <pre><code>min by(dataplane_group_id) (dns_controller_route53_healthchecks_total{healthy=\"true\", org_id=\"\$orgId\"}[5m]) > bool 15</code></pre> |
+| Dataplane CPU Usage |  | gauge | <pre><code>sum by (pod)(rate(container_cpu_usage_seconds_total{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\",pod=~\"dataplane-.*\", container!=\"\"}[1m]))/sum by (pod)(kube_pod_container_resource_limits{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\",pod=~\"dataplane-.*\", unit=\"core\"})</code></pre> |
+| Dataplane Memory Usage |  | gauge | <pre><code>sum by (pod)(container_memory_working_set_bytes{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\",pod=~\"dataplane-.*\", container!=\"\"})/sum by (pod)(kube_pod_container_resource_limits{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\",pod=~\"dataplane-.*\", unit=\"byte\"})</code></pre> |
+| Kong vs NLB connections |  | timeseries | <pre><code>(sum(kong_nginx_connections_total{orgId=\"\$orgId\", clusterName=\"\$clusterName\", state=~\"reading|active|waiting|writing\", namespace=\"\$namespace\"})-sum(aws_networkelb_active_flow_count_maximum{orgId=\"\$orgId\", clusterName=\"\$clusterName\", tag_gateways_kongcloud_io_controlplane_group_id=\"\$namespace\"}))/sum(kong_nginx_connections_total{orgId=\"\$orgId\", clusterName=\"\$clusterName\", state=~\"reading|active|waiting|writing\", namespace=\"\$namespace\"})</code></pre> |
+| Dataplane Logs Size |  | timeseries | <pre><code>sum by (pod)(increase(kubelet_container_log_filesystem_used_bytes{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace= \"\$namespace\", pod=~\"dataplane-.*\"}[1m])) </code></pre> |
+| Kong Request latency Buckets |  | timeseries | <pre><code>histogram_quantile(0.9,kong_request_latency_ms_bucket{orgId=\"\$orgId\", clusterName=\"\$clusterName\", pod=\"dataplane-.*\"})</code></pre> |
+| DP Pod Recycle Reasons |  | timeseries | <pre><code>sum by (reason, pod)(rate(kube_pod_status_reason{orgId=\"\$orgId\", clusterName=\"\$clusterName\", namespace=\"\$namespace\",pod=~\"dataplane-.*\"}[5m])), sum by (reason,pod,container)(rate(kube_pod_container_status_waiting_reason{orgId=\"\$orgId\", clusterName=\"\$clusterName\", pod=~\"dataplane-.*\"}[5m]))</code></pre> |
